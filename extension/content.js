@@ -104,10 +104,18 @@ function handleMutations() {
 }
 
 /**
+ * Variable to track the active MutationObserver instance.
+ */
+let activeObserver = null;
+
+/**
  * Sets up a MutationObserver to watch for changes to the DOM and automatically
  * apply the realignment when a contribution graph is detected.
  */
 function observeTable() {
+    // If an observer is already active, don't create another one
+    if (activeObserver) return;
+
     // Try to correct immediately on load
     handleMutations();
 
@@ -115,14 +123,23 @@ function observeTable() {
     const debouncedHandler = debounce(handleMutations, 50);
 
     // Observe the body for changes (GitHub uses Turbo/PJAX, so body content changes)
-    const observer = new MutationObserver(() => {
+    activeObserver = new MutationObserver(() => {
         debouncedHandler();
     });
 
-    observer.observe(document.body, {
+    activeObserver.observe(document.body, {
         childList: true,
         subtree: true,
     });
+
+    // Performance Optimization: Disconnect observer if no graph found after 5 seconds.
+    // This prevents unnecessary background work on non-profile pages.
+    setTimeout(() => {
+        if (activeObserver && !document.querySelector('.ContributionCalendar-grid')) {
+            activeObserver.disconnect();
+            activeObserver = null;
+        }
+    }, 5000);
 }
 
 // Main entry point
@@ -132,6 +149,9 @@ function main() {
     storage.sync.get({ enableRealignment: true }, (items) => {
         if (items.enableRealignment) {
             observeTable();
+
+            // Re-ignite the observer on navigation (Back/Forward buttons or internal navigation)
+            window.addEventListener('popstate', observeTable);
         }
     });
 }
