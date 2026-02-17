@@ -38,17 +38,13 @@ function startWeekOnMonday(table) {
         // appendChild moves the node from its current position to the end.
         tbody.appendChild(firstRow);
 
-        // 2. Shift Sunday row's contribution data
-        // The graph logic often relies on the visual grid usually matching the date logic.
-        // By moving the row, we might need to adjust the data cells to align columns if the graph is jagged.
-        // However, standard GitHub graphs are uniform grids.
-        // The original code deleted a cell from the "last row" (which is now the moved Sunday row).
-        // Let's verify if this "shift" is actually needed for alignment or if it causes data loss.
-        // If we move Sunday to the end, it becomes the last row.
-        // If we delete a cell, we are shifting the days.
-        // WARNING: Deleting a cell might be specific to how GitHub renders the SVG/Grid alignment.
-        // Preserving original logic's intent here but adding safety.
-
+        // 2. Shift Sunday row's contribution data to maintain temporal alignment.
+        // By moving the Sunday row from the top to the bottom, the Sundays in each 
+        // column become "backward" (they represent the date *before* the Monday above them).
+        // We delete the first cell (index 1, as index 0 is the label) so that 
+        // all subsequent Sundays shift left by one column.
+        // This ensures that the Sunday at the bottom of a column is the one 
+        // that *follows* the Monday at the top of that same column.
         const newLastRow = tbody.rows[tbody.rows.length - 1]; // This is our moved Sunday row
         if (newLastRow.cells.length > 1) {
             newLastRow.deleteCell(1);
