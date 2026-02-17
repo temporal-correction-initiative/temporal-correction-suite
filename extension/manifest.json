@@ -1,7 +1,7 @@
 {
     "manifest_version": 3,
     "name": "Contribution Graph Realignment Tool",
-    "version": "1.1",
+    "version": "1.2",
     "description": "A browser extension by The GitHub Temporal Correction Initiative. Dedicated to restoring chronological integrity to GitHub's contribution graph. Because Monday comes first!",
     "content_scripts": [
         {
