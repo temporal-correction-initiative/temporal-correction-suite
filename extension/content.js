@@ -78,6 +78,8 @@ function startWeekOnMonday(table) {
 
 /**
  * Debounce function to limit how often the observer fires.
+ * @param {Function} func - The function to debounce.
+ * @param {number} wait - The delay in milliseconds.
  */
 function debounce(func, wait) {
     let timeout;
@@ -91,6 +93,10 @@ function debounce(func, wait) {
     };
 }
 
+/**
+ * Detects the contribution graph table and triggers the realignment.
+ * Used by the MutationObserver when DOM changes occur.
+ */
 function handleMutations() {
     const table = document.querySelector('.ContributionCalendar-grid');
     if (table) {
@@ -98,6 +104,10 @@ function handleMutations() {
     }
 }
 
+/**
+ * Sets up a MutationObserver to watch for changes to the DOM and automatically
+ * apply the realignment when a contribution graph is detected.
+ */
 function observeTable() {
     // Try to correct immediately on load
     handleMutations();
