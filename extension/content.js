@@ -3,126 +3,151 @@
 // Author: Temporal Correction Initiative
 // Description: A browser extension to modify GitHub contribution graphs to start weeks on Monday.
 
+/**
+ * Main logic to realign the contribution graph.
+ * @param {HTMLTableElement} table - The contribution graph table element.
+ */
 function startWeekOnMonday(table) {
     // Prevent repeated modification
-    if (table.dataset.weekMondayCorrected) return;
+    if (table.dataset.weekMondayCorrected === 'true') return;
 
     // Get the tbody and check for 7 rows (one per day)
     const tbody = table.querySelector('tbody');
-    if (!tbody) {
-        console.error('[Contribution Graph Realignment] Failed: No <tbody> found in contribution graph table.');
-        return;
-    }
-    if (tbody.rows.length !== 7) {
-        console.error('[Contribution Graph Realignment] Failed: Contribution graph does not have 7 rows. Found:', tbody.rows.length);
+    if (!tbody || tbody.rows.length !== 7) {
+        // Silently exit if structure isn't what we expect (might be loading or different graph type)
         return;
     }
 
     // Guard: Only move the row if the first cell of the first row is labeled 'Sun'
     const firstRow = tbody.rows[0];
-    if (firstRow.cells.length === 0) {
-        console.error('[Contribution Graph Realignment] Failed: First row has no cells.');
+    if (firstRow.cells.length < 2) {
+        // Not enough cells to be a valid graph row
         return;
     }
 
-    const span = firstRow.cells[0].querySelector('span[aria-hidden="true"]');
-    if (!span) {
-        console.error('[Contribution Graph Realignment] Failed: No label span found in first row.');
-        return;
-    }
-    if (span.textContent.trim() !== 'Sun') {
-        // Already Monday or not Sunday, skip correction (not an error)
-        return;
-    }
-    // Check that the Sunday row has at least 2 cells before proceeding
-    if (firstRow.cells.length < 2) {
-        console.error('[Contribution Graph Realignment] Failed: Sunday row does not have enough cells to shift contribution data.');
+    const labelCell = firstRow.cells[0];
+    const labelSpan = labelCell.querySelector('span[aria-hidden="true"]');
+
+    if (!labelSpan || labelSpan.textContent.trim() !== 'Sun') {
+        // Already Monday or not Sunday, skip correction
         return;
     }
 
     try {
         // 1. Move the Sunday row (index 0) to the bottom.
-        const sundayRow = tbody.rows[0];
-        tbody.appendChild(sundayRow);
+        // appendChild moves the node from its current position to the end.
+        tbody.appendChild(firstRow);
 
-        // All checks on lastRow.cells are redundant; we validated cell count before moving the row.
-
-        // 2. Shift Sunday row's contribution data
-        const lastRow = tbody.rows[tbody.rows.length - 1];
-        lastRow.deleteCell(1);
+        // 2. Shift Sunday row's contribution data to maintain temporal alignment.
+        // By moving the Sunday row from the top to the bottom, the Sundays in each 
+        // column become "backward" (they represent the date *before* the Monday above them).
+        // We delete the first cell (index 1, as index 0 is the label) so that 
+        // all subsequent Sundays shift left by one column.
+        // This ensures that the Sunday at the bottom of a column is the one 
+        // that *follows* the Monday at the top of that same column.
+        const newLastRow = tbody.rows[tbody.rows.length - 1]; // This is our moved Sunday row
+        if (newLastRow.cells.length > 1) {
+            newLastRow.deleteCell(1);
+        }
 
         // 3. Fix the visibility of the "Sun" label
-        const span = lastRow.cells[0].querySelector('span[aria-hidden="true"]');
-        if (span && span.hasAttribute('style')) {
-            const newStyle = span.getAttribute('style').replace('Circle(0)', 'None');
-            span.setAttribute('style', newStyle);
+        // Labels at the top are often hidden (clip-path: Circle(0)). 
+        // Labels at the bottom/middle are visible.
+        const sunLabel = newLastRow.cells[0].querySelector('span[aria-hidden="true"]');
+        if (sunLabel && sunLabel.hasAttribute('style')) {
+            // Un-hide the label by removing the clip-path
+            const currentStyle = sunLabel.getAttribute('style');
+            const newStyle = currentStyle.replace('Circle(0)', 'None');
+            sunLabel.setAttribute('style', newStyle);
         }
 
         // 4. Mark as corrected
         table.dataset.weekMondayCorrected = 'true';
+        // console.log('[Contribution Graph Realignment] Graph aligned to start on Monday.');
+
     } catch (err) {
-        console.error('[Contribution Graph Realignment] Failed during DOM manipulation:', err);
+        console.error('[Contribution Graph Realignment] Error during mutation:', err);
     }
 }
 
 // --- Initialization and MutationObserver Logic ---
 
-function observeTable() {
-    // Try to correct immediately
+/**
+ * Debounce function to limit how often the observer fires.
+ * @param {Function} func - The function to debounce.
+ * @param {number} wait - The delay in milliseconds.
+ */
+function debounce(func, wait) {
+    let timeout;
+    return function executedFunction(...args) {
+        const later = () => {
+            func(...args);
+        };
+        clearTimeout(timeout);
+        timeout = setTimeout(later, wait);
+    };
+}
+
+/**
+ * Detects the contribution graph table and triggers the realignment.
+ * Used by the MutationObserver when DOM changes occur.
+ */
+function handleMutations() {
     const table = document.querySelector('.ContributionCalendar-grid');
     if (table) {
         startWeekOnMonday(table);
     }
+}
 
-    // Observe for future changes
-    const observer = new MutationObserver(() => {
-        const table = document.querySelector('.ContributionCalendar-grid');
-        if (table) {
-            startWeekOnMonday(table);
-        }
+/**
+ * Variable to track the active MutationObserver instance.
+ */
+let activeObserver = null;
+
+/**
+ * Sets up a MutationObserver to watch for changes to the DOM and automatically
+ * apply the realignment when a contribution graph is detected.
+ */
+function observeTable() {
+    // If an observer is already active, don't create another one
+    if (activeObserver) return;
+
+    // Try to correct immediately on load
+    handleMutations();
+
+    // Create a debounced handler
+    const debouncedHandler = debounce(handleMutations, 50);
+
+    // Observe the body for changes (GitHub uses Turbo/PJAX, so body content changes)
+    activeObserver = new MutationObserver(() => {
+        debouncedHandler();
     });
 
-    // Start observing the body for changes
-    observer.observe(document.body, {
+    activeObserver.observe(document.body, {
         childList: true,
         subtree: true,
     });
 
-    // Disconnect observer if .js-yearly-contributions is not present after 5 seconds
+    // Performance Optimization: Disconnect observer if no graph found after 5 seconds.
+    // This prevents unnecessary background work on non-profile pages.
     setTimeout(() => {
-        if (!document.querySelector('.js-yearly-contributions')) {
-            observer.disconnect();
+        if (activeObserver && !document.querySelector('.ContributionCalendar-grid')) {
+            activeObserver.disconnect();
+            activeObserver = null;
         }
     }, 5000);
 }
 
-// Safe URL change detection
-function onUrlChange(callback) {
-    let lastUrl = location.href;
-    const checkUrl = () => {
-        if (location.href !== lastUrl) {
-            lastUrl = location.href;
-            callback();
-        }
-    };
-    window.addEventListener('popstate', checkUrl);
-    setInterval(checkUrl, 500);
-}
-
 // Main entry point
-
-// Use browser.storage if available (preferred in modern browsers), otherwise fall back to chrome.storage.
-// This ensures compatibility across Chrome, Firefox, and other browsers supporting the WebExtension API.
 const storage = typeof browser !== 'undefined' && browser.storage ? browser.storage : chrome.storage;
 
 function main() {
-    // Check if realignment is enabled before running
     storage.sync.get({ enableRealignment: true }, (items) => {
         if (items.enableRealignment) {
             observeTable();
-            onUrlChange(() => {
-                observeTable();
-            });
+
+            // Re-ignite the observer on navigation (Back/Forward buttons or internal navigation)
+            window.addEventListener('popstate', observeTable);
         }
     });
 }
