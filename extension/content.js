@@ -115,19 +115,8 @@ function observeTable() {
     const debouncedHandler = debounce(handleMutations, 50);
 
     // Observe the body for changes (GitHub uses Turbo/PJAX, so body content changes)
-    const observer = new MutationObserver((mutations) => {
-        // Optimization: Check if any mutation actually added nodes or is relevant
-        let shouldCheck = false;
-        for (const mutation of mutations) {
-            if (mutation.type === 'childList') {
-                shouldCheck = true;
-                break;
-            }
-        }
-
-        if (shouldCheck) {
-            debouncedHandler();
-        }
+    const observer = new MutationObserver(() => {
+        debouncedHandler();
     });
 
     observer.observe(document.body, {
